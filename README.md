@@ -9,7 +9,7 @@ kết hợp Sentence-BERT (Transformer encoder) + FAISS + Flan-T5.
 Tài liệu (PDF/TXT)
       │
       ▼
-[Sentence-BERT]  ←── Transformer encoder (paraphrase-multilingual-MiniLM-L12-v2)
+[Sentence-BERT]  ←── Transformer encoder (keepitreal/vietnamese-sbert)
       │ encode thành vector 384 chiều
       ▼
 [FAISS Index]    ←── Vector database, lưu & tìm kiếm nhanh
@@ -17,7 +17,7 @@ Tài liệu (PDF/TXT)
       │  Lúc query:
       │  Câu hỏi → encode → cosine similarity search → top-K chunks
       ▼
-[Flan-T5]        ←── Transformer generator (google/flan-t5-base)
+[Flan-T5]        ←── Transformer generator (VietAI/vit5-base)
       │ sinh câu trả lời từ context
       ▼
 [FastAPI Server] ←── REST API: /upload, /chat, /status
@@ -85,7 +85,7 @@ Output:
 [2/4] Chia chunks...
   ✓ your_document.pdf: 8 chunks
 [3/4] Load Transformer model & encode...
-  Encoding 8 chunks bằng paraphrase-multilingual-MiniLM-L12-v2...
+  Encoding 8 chunks bằng keepitreal/vietnamese-sbert...
 [4/4] Xây dựng FAISS index...
   ✓ FAISS index: 8 vectors
 ✅ Indexing hoàn thành!
@@ -150,7 +150,7 @@ Response:
 ## Giải thích kỹ thuật (cho tiểu luận)
 
 ### 1. Transformer Encoder (Sentence-BERT)
-- Model: `paraphrase-multilingual-MiniLM-L12-v2`
+- Model: `keepitreal/vietnamese-sbert`
 - Kiến trúc: 12 lớp Transformer encoder, 384 chiều hidden
 - Kỹ thuật: Mean pooling trên tất cả token hidden states → sentence vector
 - Hỗ trợ 50+ ngôn ngữ bao gồm tiếng Việt
@@ -161,7 +161,7 @@ Response:
 - Tìm top-K chunks liên quan nhất với câu hỏi
 
 ### 3. Transformer Generator (Flan-T5)
-- Model: `google/flan-t5-base`
+- Model: `VietAI/vit5-base`
 - Kiến trúc: Encoder-Decoder Transformer (seq2seq)
 - Fine-tuned theo instruction-following
 - Sinh câu trả lời từ context chunks
@@ -178,7 +178,7 @@ query → encode(query) → FAISS.search(top_k) → T5.generate(query + context)
 | Biến              | Mặc định                                    | Mô tả                    |
 |-------------------|---------------------------------------------|--------------------------|
 | INDEX_DIR         | `.`                                         | Thư mục chứa FAISS index |
-| GENERATOR_MODEL   | `google/flan-t5-base`                       | Model T5 để generate     |
+| GENERATOR_MODEL   | `VietAI/vit5-base`                          | Model T5 để generate     |
 | VITE_API_URL      | `http://localhost:8000`                     | URL của backend API      |
 
 ---
