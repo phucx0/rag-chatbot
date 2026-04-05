@@ -8,7 +8,7 @@ Endpoints:
   POST /chat         → hỏi đáp
   GET  /documents    → danh sách tài liệu đã index
 
-Chạy: uvicorn server:app --reload --port 8000
+Chạy: uvicorn server:app --port 8000
 """
 
 import io
@@ -151,7 +151,7 @@ async def upload_document(file: UploadFile = File(...)):
     if suffix not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Chỉ chấp nhận file .pdf hoặc .txt. Nhận được: {suffix}",
+            detail=f"Chỉ chấp nhận file .pdf, .txt, hoặc .json. Nhận được: {suffix}",
         )
 
     content = await file.read()
@@ -175,8 +175,6 @@ async def upload_document(file: UploadFile = File(...)):
             )
     elif suffix == ".json":
         from json_loader import extract_text_from_vimqa
-        import tempfile, os
-        # Ghi tạm ra file để dùng hàm đọc
         with tempfile.NamedTemporaryFile(
             mode="wb", suffix=".json", delete=False
         ) as tmp:
@@ -206,23 +204,31 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 def _bootstrap_engine(filename: str, text: str):
-    """Khởi tạo index từ đầu khi chưa có sẵn"""
-    from indexing import chunk_text, build_faiss_index, encode_chunks, EMBED_DIM
+    """
+    Khởi tạo index từ đầu khi chưa có sẵn.
+    FIX: không hardcode EMBED_DIM, tự detect từ embeddings thực tế.
+    """
+    from indexing import chunk_text
     import pickle
     import json
     import faiss as fs
-
     from sentence_transformers import SentenceTransformer
-    import numpy as np
 
-    model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+    model_name = os.getenv(
+        "ENCODER_MODEL", "keepitreal/vietnamese-sbert"
+    )
     engine.model  = SentenceTransformer(model_name)
     chunks        = chunk_text(text, filename)
     engine.chunks = chunks
 
-    texts       = [c["text"] for c in chunks]
-    embeddings  = engine.model.encode(texts, normalize_embeddings=True).astype("float32")
-    engine.index = fs.IndexFlatIP(EMBED_DIM)
+    texts      = [c["text"] for c in chunks]
+    embeddings = engine.model.encode(
+        texts, normalize_embeddings=True
+    ).astype("float32")
+
+    # FIX: dim từ embeddings thực tế, không hardcode
+    actual_dim   = embeddings.shape[1]
+    engine.index = fs.IndexFlatIP(actual_dim)
     engine.index.add(embeddings)
 
     idx_dir = Path(INDEX_DIR)
@@ -234,12 +240,14 @@ def _bootstrap_engine(filename: str, text: str):
         "model_name": model_name,
         "documents": [filename],
         "num_chunks": len(chunks),
+        "embed_dim": actual_dim,
     }
-    with open(idx_dir / "index_meta.json", "w") as f:
-        json.dump(engine.meta, f)
+    with open(idx_dir / "index_meta.json", "w", encoding="utf-8") as f:
+        json.dump(engine.meta, f, ensure_ascii=False, indent=2)
 
     engine._load_generator()
     engine.loaded = True
+    print(f"[Bootstrap] Index tạo xong: {len(chunks)} chunks, dim={actual_dim}")
 
 
 @app.get("/documents")
