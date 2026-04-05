@@ -1,0 +1,11 @@
+{
+  "model_name": "paraphrase-multilingual-MiniLM-L12-v2",
+  "num_docs": 1,
+  "num_chunks": 44,
+  "chunk_size": 300,
+  "chunk_overlap": 50,
+  "embed_dim": 384,
+  "documents": [
+    "train_vietnamese.json"
+  ]
+}
