@@ -1,7 +1,7 @@
 """
 RAG Indexing Pipeline
 =====================
-Đọc tài liệu (PDF / TXT) → chunk → encode bằng Sentence-BERT → lưu FAISS index
+Đọc tài liệu (PDF / TXT / VIMQA JSON) → chunk → encode → FAISS index
 Chạy: python indexing.py --docs_dir ../docs
 """
 
@@ -10,20 +10,19 @@ import json
 import argparse
 import pickle
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 
 # ── Cấu hình ────────────────────────────────────────────────────────────────
-MODEL_NAME   = "paraphrase-multilingual-MiniLM-L12-v2"  # ~120MB, hỗ trợ VI+EN
-CHUNK_SIZE   = 300    # số từ mỗi đoạn
-CHUNK_OVERLAP = 50    # số từ trùng lắp giữa 2 đoạn liền kề
-INDEX_PATH   = "vector.index"
-CHUNKS_PATH  = "chunks.pkl"
-EMBED_DIM    = 384    # chiều vector của model trên
+MODEL_NAME    = "keepitreal/vietnamese-sbert"
+CHUNK_SIZE    = 300
+CHUNK_OVERLAP = 50
+INDEX_PATH    = "vector.index"
+CHUNKS_PATH   = "chunks.pkl"
+# EMBED_DIM không hardcode — tự detect từ embeddings.shape[1]
 
 
 # ── 1. Đọc tài liệu ─────────────────────────────────────────────────────────
@@ -45,47 +44,96 @@ def read_pdf(path: str) -> str:
         return ""
 
 
-def load_documents(docs_dir: str) -> List[Dict]:
-    """Trả về list of {filename, text}"""
-    docs = []
+def load_documents(docs_dir: str) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Trả về:
+      docs         — list {filename, text} cho TXT/PDF → sẽ chunk theo câu
+      json_chunks  — list chunks sẵn từ VIMQA JSON (paragraph-level)
+    """
+    docs: List[Dict]        = []
+    json_chunks: List[Dict] = []
+
     for p in Path(docs_dir).rglob("*"):
         if p.suffix.lower() == ".txt":
             text = read_txt(str(p))
+            if text.strip():
+                docs.append({"filename": p.name, "text": text})
+                print(f"  ✓ TXT: {p.name} ({len(text.split())} từ)")
+
         elif p.suffix.lower() == ".pdf":
             text = read_pdf(str(p))
-        elif p.suffix.lower() == ".json":      # ← THÊM DÒNG NÀY
-            text = read_json_vimqa(str(p))
-        else:
+            if text.strip():
+                docs.append({"filename": p.name, "text": text})
+                print(f"  ✓ PDF: {p.name} ({len(text.split())} từ)")
+
+        elif p.suffix.lower() == ".json":
+            # VIMQA JSON → paragraph-level chunks, không chunk theo từ
+            chunks = _read_json_vimqa_chunks(str(p))
+            if chunks:
+                json_chunks.extend(chunks)
+                n_sup = sum(1 for c in chunks if c.get("is_supporting"))
+                print(f"  ✓ JSON: {p.name} → {len(chunks)} chunks "
+                      f"({n_sup} supporting)")
+
+    return docs, json_chunks
+
+
+def _read_json_vimqa_chunks(path: str) -> List[Dict]:
+    """Gọi load_vimqa_as_chunks() — paragraph-level, không cắt giữa câu."""
+    try:
+        from json_loader import load_vimqa_as_chunks
+        return load_vimqa_as_chunks(path)
+    except Exception as e:
+        print(f"  [!] Lỗi đọc JSON {path}: {e}")
+        return []
+
+
+# ── 2. Chia chunks (chỉ dùng cho TXT/PDF) ──────────────────────────────────
+def chunk_text(text: str, filename: str,
+               size: int = CHUNK_SIZE,
+               overlap: int = CHUNK_OVERLAP) -> List[Dict]:
+    """
+    Chia văn bản TXT/PDF tại ranh giới câu (không cắt giữa câu).
+    VIMQA JSON dùng load_vimqa_as_chunks() thay thế.
+    """
+    import re
+
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks    = []
+    chunk_id  = 0
+    current_words: List[str] = []
+    current_sents: List[str] = []
+
+    for sent in sentences:
+        sent_words = sent.split()
+        if not sent_words:
             continue
-        if text.strip():
-            docs.append({"filename": p.name, "text": text})
-            print(f"  ✓ Đã đọc: {p.name} ({len(text.split())} từ)")
-    return docs
 
+        if current_words and len(current_words) + len(sent_words) > size:
+            chunks.append({
+                "id":         f"{filename}_chunk_{chunk_id}",
+                "source":     filename,
+                "text":       " ".join(current_words),
+                "start_word": 0,
+                "end_word":   len(current_words),
+            })
+            chunk_id += 1
+            # Overlap: giữ câu cuối
+            overlap_sents = current_sents[-1:] if current_sents else []
+            current_words = " ".join(overlap_sents).split()
+            current_sents = overlap_sents
 
-# ── 2. Chia chunks ──────────────────────────────────────────────────────────
-def chunk_text(text: str, filename: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[Dict]:
-    """Chia văn bản thành các đoạn có overlap"""
-    words = text.split()
-    chunks = []
-    start = 0
-    chunk_id = 0
+        current_words.extend(sent_words)
+        current_sents.append(sent)
 
-    while start < len(words):
-        end = min(start + size, len(words))
-        chunk_words = words[start:end]
-        chunk_text_str = " ".join(chunk_words)
-
+    if current_words:
         chunks.append({
-            "id": f"{filename}_chunk_{chunk_id}",
-            "source": filename,
-            "text": chunk_text_str,
-            "start_word": start,
-            "end_word": end,
+            "id":         f"{filename}_chunk_{chunk_id}",
+            "source":     filename,
+            "text":       " ".join(current_words),
+            "start_word": 0,
+            "end_word":   len(current_words),
         })
-
-        chunk_id += 1
-        start += size - overlap  # trượt cửa sổ có overlap
 
     return chunks
 
@@ -100,42 +148,33 @@ def build_chunks(docs: List[Dict]) -> List[Dict]:
 
 
 # ── 3. Encode bằng Transformer ──────────────────────────────────────────────
-def encode_chunks(chunks: List[Dict], model: SentenceTransformer, batch_size: int = 32) -> np.ndarray:
-    """
-    Đây là bước ứng dụng Transformer:
-    - Mỗi chunk text được tokenize và đưa qua Sentence-BERT
-    - Output là vector 384 chiều (mean pooling của hidden states)
-    - Cosine similarity giữa các vectors → tìm đoạn liên quan
-    """
+def encode_chunks(chunks: List[Dict], model: SentenceTransformer,
+                  batch_size: int = 32) -> np.ndarray:
     texts = [c["text"] for c in chunks]
     print(f"\n  Encoding {len(texts)} chunks bằng {MODEL_NAME}...")
-
     embeddings = model.encode(
         texts,
         batch_size=batch_size,
         show_progress_bar=True,
-        normalize_embeddings=True,   # normalize → cosine sim = dot product
+        normalize_embeddings=True,
     )
     return embeddings.astype("float32")
 
 
 # ── 4. Xây dựng FAISS index ─────────────────────────────────────────────────
 def build_faiss_index(embeddings: np.ndarray) -> faiss.Index:
-    """
-    FAISS IndexFlatIP: Inner Product search
-    Vì embeddings đã normalize → IP = cosine similarity
-    """
-    index = faiss.IndexFlatIP(EMBED_DIM)
+    dim = embeddings.shape[1]   # tự detect: 768 (vietnamese-sbert) hoặc 384 (MiniLM)
+    index = faiss.IndexFlatIP(dim)
     index.add(embeddings)
-    print(f"  ✓ FAISS index: {index.ntotal} vectors")
+    print(f"  ✓ FAISS index: {index.ntotal} vectors (dim={dim})")
     return index
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="RAG Indexing Pipeline")
-    parser.add_argument("--docs_dir", default="../docs", help="Thư mục chứa tài liệu")
-    parser.add_argument("--output_dir", default=".", help="Thư mục lưu index")
+    parser.add_argument("--docs_dir",   default="../docs", help="Thư mục chứa tài liệu")
+    parser.add_argument("--output_dir", default=".",       help="Thư mục lưu index")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -147,83 +186,52 @@ def main():
 
     # Bước 1: Load tài liệu
     print("\n[1/4] Đọc tài liệu...")
-    docs = load_documents(args.docs_dir)
-    if not docs:
-        print("  [!] Không tìm thấy tài liệu nào. Tạo file mẫu...")
-        # _create_sample_docs(args.docs_dir)
-        docs = load_documents(args.docs_dir)
+    docs, json_chunks = load_documents(args.docs_dir)
+    if not docs and not json_chunks:
+        print("  [!] Không tìm thấy tài liệu nào trong", args.docs_dir)
+        return
 
     # Bước 2: Chia chunks
     print("\n[2/4] Chia chunks...")
-    chunks = build_chunks(docs)
-    print(f"  Tổng cộng: {len(chunks)} chunks")
+    txt_chunks = build_chunks(docs)
+    all_chunks = txt_chunks + json_chunks
+    print(f"  TXT/PDF chunks : {len(txt_chunks)}")
+    print(f"  JSON chunks    : {len(json_chunks)}")
+    print(f"  Tổng cộng      : {len(all_chunks)} chunks")
 
     # Bước 3: Load model & encode
     print("\n[3/4] Load Transformer model & encode...")
     print(f"  Model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME)
-    embeddings = encode_chunks(chunks, model)
+    model      = SentenceTransformer(MODEL_NAME)
+    embeddings = encode_chunks(all_chunks, model)
 
     # Bước 4: Build & lưu FAISS index
     print("\n[4/4] Xây dựng FAISS index...")
     index = build_faiss_index(embeddings)
 
-    index_path  = output_dir / INDEX_PATH
-    chunks_path = output_dir / CHUNKS_PATH
+    faiss.write_index(index, str(output_dir / INDEX_PATH))
+    with open(output_dir / CHUNKS_PATH, "wb") as f:
+        pickle.dump(all_chunks, f)
 
-    faiss.write_index(index, str(index_path))
-    with open(chunks_path, "wb") as f:
-        pickle.dump(chunks, f)
-
-    # Lưu metadata
+    actual_dim = embeddings.shape[1]
     meta = {
-        "model_name": MODEL_NAME,
-        "num_docs": len(docs),
-        "num_chunks": len(chunks),
-        "chunk_size": CHUNK_SIZE,
+        "model_name":    MODEL_NAME,
+        "num_docs":      len(docs) + len({c["source"] for c in json_chunks}),
+        "num_chunks":    len(all_chunks),
+        "chunk_size":    CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
-        "embed_dim": EMBED_DIM,
-        "documents": [d["filename"] for d in docs],
+        "embed_dim":     actual_dim,
+        "documents":     [d["filename"] for d in docs] +
+                         list({c["source"] for c in json_chunks}),
     }
     with open(output_dir / "index_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     print("\n✅ Indexing hoàn thành!")
-    print(f"   Index saved : {index_path}")
-    print(f"   Chunks saved: {chunks_path}")
-    print(f"   Total chunks: {len(chunks)}")
-
-
-def read_json_vimqa(path: str) -> str:
-    """Đọc VIMQA JSON → plain text để chunk bình thường"""
-    from json_loader import extract_text_from_vimqa
-    return extract_text_from_vimqa(path)
-
-def _create_sample_docs(docs_dir: str):
-    """Tạo tài liệu mẫu để test"""
-    Path(docs_dir).mkdir(parents=True, exist_ok=True)
-    sample = """Transformer là kiến trúc deep learning được giới thiệu năm 2017 trong bài báo "Attention Is All You Need".
-Kiến trúc này dựa hoàn toàn vào cơ chế self-attention, loại bỏ hoàn toàn các lớp RNN và CNN truyền thống.
-
-Cơ chế Self-Attention cho phép mô hình tập trung vào các từ liên quan trong câu khi xử lý mỗi từ.
-Với mỗi từ, mô hình tính toán ba vector: Query (Q), Key (K) và Value (V).
-Attention score được tính bằng: Attention(Q,K,V) = softmax(QK^T / sqrt(d_k)) * V
-
-BERT (Bidirectional Encoder Representations from Transformers) là mô hình Transformer encoder được Google giới thiệu năm 2018.
-BERT được pre-train trên lượng văn bản khổng lồ bằng hai nhiệm vụ: Masked Language Model và Next Sentence Prediction.
-Sau đó có thể fine-tune cho nhiều tác vụ NLP như phân loại văn bản, NER, hỏi đáp.
-
-RAG (Retrieval-Augmented Generation) kết hợp hai kỹ thuật: truy xuất thông tin và sinh văn bản.
-Đầu tiên, hệ thống tìm kiếm các đoạn văn bản liên quan từ knowledge base sử dụng semantic search.
-Sau đó, LLM sử dụng các đoạn đó làm context để sinh câu trả lời chính xác hơn.
-
-Sentence-BERT là biến thể của BERT được fine-tune để tạo ra sentence embeddings chất lượng cao.
-Nó sử dụng Siamese network với mean pooling để tạo vector đại diện cho toàn bộ câu.
-Các vector này có thể so sánh bằng cosine similarity để tìm câu tương đồng về ngữ nghĩa.
-"""
-    with open(f"{docs_dir}/sample_nlp.txt", "w", encoding="utf-8") as f:
-        f.write(sample)
-    print("  ✓ Đã tạo tài liệu mẫu: docs/sample_nlp.txt")
+    print(f"   Index saved : {output_dir / INDEX_PATH}")
+    print(f"   Chunks saved: {output_dir / CHUNKS_PATH}")
+    print(f"   Total chunks: {len(all_chunks)}")
+    print(f"   Embed dim   : {actual_dim}")
 
 
 if __name__ == "__main__":
