@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    allowedHosts: ["hematozoic-chelsie-nonfictively.ngrok-free.dev"],
+    allowedHosts: ["underling-phrasing-hermit.ngrok-free.dev"],
     proxy: {
       "/api": {
         target: "http://localhost:8000",

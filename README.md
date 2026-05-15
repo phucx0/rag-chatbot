@@ -30,11 +30,19 @@ Tài liệu (PDF/TXT)
 
 ```
 rag-chatbot/
-├── backend/
-│   ├── indexing.py      # Pipeline: đọc tài liệu → chunk → encode → FAISS
-│   ├── rag_engine.py    # RAG engine: retrieve + generate
-│   ├── server.py        # FastAPI server
-│   └── requirements.txt
+└── backend
+    └── __pycache__
+    └── .hf_cache
+    └── .model_cache
+    └── data
+    └── notebook
+    └── src
+        ├── api.py
+        ├── pipeline.py
+        ├── reader.py
+        ├── retriever.py
+    ├── README.md
+    └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx
@@ -45,7 +53,6 @@ rag-chatbot/
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
-└── docs/                # Thư mục chứa tài liệu của bạn
 ```
 
 ---
@@ -71,34 +78,12 @@ mkdir docs
 cp your_document.pdf ../docs/
 ```
 
-### Bước 3 — Chạy Indexing
+### Bước 3 — Chạy Server
 
 ```bash
 cd backend
-python indexing.py --docs_dir ../docs --output_dir .
+uvicorn src.api:app --reload --port 8000
 ```
-
-Output:
-```
-[1/4] Đọc tài liệu...
-  ✓ Đã đọc: your_document.pdf (1234 từ)
-[2/4] Chia chunks...
-  ✓ your_document.pdf: 8 chunks
-[3/4] Load Transformer model & encode...
-  Encoding 8 chunks bằng keepitreal/vietnamese-sbert...
-[4/4] Xây dựng FAISS index...
-  ✓ FAISS index: 8 vectors
-✅ Indexing hoàn thành!
-```
-
-### Bước 4 — Chạy FastAPI Server
-
-```bash
-cd backend
-uvicorn server:app --reload --port 8000
-```
-
-Mở trình duyệt: http://localhost:8000/docs để xem API docs tự động.
 
 ### Bước 5 — Chạy React Website
 
@@ -115,58 +100,35 @@ Mở trình duyệt: http://localhost:3000
 
 ## API Endpoints
 
-| Method | Endpoint    | Mô tả                          |
-|--------|-------------|-------------------------------|
-| GET    | /status     | Trạng thái index               |
-| POST   | /upload     | Upload PDF/TXT                 |
-| POST   | /chat       | Gửi câu hỏi, nhận câu trả lời |
-| GET    | /documents  | Danh sách tài liệu đã index   |
+| Method | Endpoint | Mô tả                         |
+| ------ | -------- | ----------------------------- |
+| GET    | /status  | Trạng thái index              |
+| POST   | /chat    | Gửi câu hỏi, nhận câu trả lời |
 
-### Ví dụ gọi /chat
-
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Transformer là gì?", "top_k": 4}'
-```
-
-Response:
-```json
-{
-  "answer": "Transformer là kiến trúc deep learning...",
-  "question": "Transformer là gì?",
-  "sources": [
-    {
-      "source": "sample_nlp.txt",
-      "text": "Transformer là kiến trúc deep learning được giới thiệu năm 2017...",
-      "score": 0.8921
-    }
-  ]
-}
-```
-
----
-
-## Giải thích kỹ thuật (cho tiểu luận)
+## Giải thích kỹ thuật
 
 ### 1. Transformer Encoder (Sentence-BERT)
+
 - Model: `keepitreal/vietnamese-sbert`
 - Kiến trúc: 12 lớp Transformer encoder, 384 chiều hidden
 - Kỹ thuật: Mean pooling trên tất cả token hidden states → sentence vector
 - Hỗ trợ 50+ ngôn ngữ bao gồm tiếng Việt
 
 ### 2. FAISS Vector Search
+
 - Dùng `IndexFlatIP` (Inner Product)
 - Embeddings đã normalize → IP = cosine similarity
 - Tìm top-K chunks liên quan nhất với câu hỏi
 
 ### 3. Transformer Generator (Flan-T5)
+
 - Model: `VietAI/vit5-base`
 - Kiến trúc: Encoder-Decoder Transformer (seq2seq)
 - Fine-tuned theo instruction-following
 - Sinh câu trả lời từ context chunks
 
 ### 4. RAG Pipeline
+
 ```
 query → encode(query) → FAISS.search(top_k) → T5.generate(query + context) → answer
 ```
@@ -175,11 +137,11 @@ query → encode(query) → FAISS.search(top_k) → T5.generate(query + context)
 
 ## Biến môi trường
 
-| Biến              | Mặc định                                    | Mô tả                    |
-|-------------------|---------------------------------------------|--------------------------|
-| INDEX_DIR         | `.`                                         | Thư mục chứa FAISS index |
-| GENERATOR_MODEL   | `VietAI/vit5-base`                          | Model T5 để generate     |
-| VITE_API_URL      | `http://localhost:8000`                     | URL của backend API      |
+| Biến            | Mặc định                | Mô tả                    |
+| --------------- | ----------------------- | ------------------------ |
+| INDEX_DIR       | `.`                     | Thư mục chứa FAISS index |
+| GENERATOR_MODEL | `VietAI/vit5-base`      | Model T5 để generate     |
+| VITE_API_URL    | `http://localhost:8000` | URL của backend API      |
 
 ---
 

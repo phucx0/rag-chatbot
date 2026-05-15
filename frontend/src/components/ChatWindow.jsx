@@ -38,7 +38,6 @@ export default function ChatWindow({ messages, onSend, loading, ready }) {
 
         {loading && (
           <div className="bubble-row assistant">
-            {/* FIX 1: Thiếu avatar → bubble lệch trái so với tin nhắn assistant khác */}
             <div className="avatar assistant-avatar">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
@@ -83,8 +82,6 @@ function MessageBubble({ msg }) {
   const [expanded, setExpanded] = useState(false)
   const isUser = msg.role === "user"
 
-  // FIX 2: renderText cũ chỉ xử lý **bold**, bỏ qua \n
-  // → câu trả lời dài từ T5 hiện thành 1 khối chữ không xuống dòng
   const renderText = (text) => {
     return text.split("\n").map((line, lineIdx) => (
       <span key={lineIdx}>
@@ -102,9 +99,18 @@ function MessageBubble({ msg }) {
     <div className={`bubble-row ${isUser ? "user" : "assistant"}`}>
       {!isUser && (
         <div className="avatar assistant-avatar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          {/* <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
-          </svg>
+          </svg> */}
+          <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 32 32"
+      width="32"
+      height="32"
+      fill="currentColor"
+    >
+      <path d="m13.294 7.436.803 2.23a8.835 8.835 0 0 0 5.316 5.316l2.23.803a.229.229 0 0 1 0 .43l-2.23.803a8.835 8.835 0 0 0-5.316 5.316l-.803 2.23a.229.229 0 0 1-.43 0l-.803-2.23a8.835 8.835 0 0 0-5.316-5.316l-2.23-.803a.229.229 0 0 1 0-.43l2.23-.803a8.835 8.835 0 0 0 5.316-5.316l.803-2.23a.228.228 0 0 1 .43 0zM23.332 2.077l.407 1.129a4.477 4.477 0 0 0 2.692 2.692l1.129.407a.116.116 0 0 1 0 .218l-1.129.407a4.477 4.477 0 0 0-2.692 2.692l-.407 1.129a.116.116 0 0 1-.218 0l-.407-1.129a4.477 4.477 0 0 0-2.692-2.692l-1.129-.407a.116.116 0 0 1 0-.218l1.129-.407a4.477 4.477 0 0 0 2.692-2.692l.407-1.129a.116.116 0 0 1 .218 0zM23.332 21.25l.407 1.129a4.477 4.477 0 0 0 2.692 2.692l1.129.407a.116.116 0 0 1 0 .218l-1.129.407a4.477 4.477 0 0 0-2.692 2.692l-.407 1.129a.116.116 0 0 1-.218 0l-.407-1.129a4.477 4.477 0 0 0-2.692-2.692l-1.129-.407a.116.116 0 0 1 0-.218l1.129-.407a4.477 4.477 0 0 0 2.692-2.692l.407-1.129c.037-.102.182-.102.218 0z" />
+    </svg>
         </div>
       )}
 
@@ -115,8 +121,6 @@ function MessageBubble({ msg }) {
 
         {!isUser && msg.sources && msg.sources.length > 0 && (
           <div className="sources-section">
-            {/* FIX 3: Thiếu type="button" → click toggle nguồn tham khảo trigger form submit
-                → trang reload, mất toàn bộ chat history */}
             <button
               type="button"
               className="sources-toggle"

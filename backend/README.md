@@ -1,0 +1,8 @@
+```bash
+pip install torch
+pip install transformers
+pip install sentence-transformers
+pip install datasets
+pip install faiss-cpu
+pip install numpy
+```

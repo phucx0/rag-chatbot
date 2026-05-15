@@ -26,8 +26,12 @@ backend/*.pyd
 backend/venv/
 backend/.venv/
 
+backend/.hf_cache/
+backend/.model_cache/
+backend/data/
+
 # env
-backend/.env
+.env
 
 # =========================
 # SYSTEM

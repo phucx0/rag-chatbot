@@ -40,7 +40,7 @@ export default function Sidebar({ status, onUpload, uploading }) {
       </div>
 
       {/* Status */}
-      <div className="status-card">
+      {/* <div className="status-card">
         <div className="status-row">
           <span className={`status-dot ${status.ready ? "online" : "offline"}`} />
           <span className="status-label">{status.ready ? "Sẵn sàng" : "Chưa có tài liệu"}</span>
@@ -57,10 +57,10 @@ export default function Sidebar({ status, onUpload, uploading }) {
             </div>
           </div>
         )}
-      </div>
+      </div> */}
 
       {/* Upload */}
-      <div className="upload-section">
+      {/* <div className="upload-section">
         <div className="section-title">Tải tài liệu lên</div>
         <div
           className={`drop-zone ${dragOver ? "drag-over" : ""} ${uploading ? "uploading" : ""}`}
@@ -69,7 +69,6 @@ export default function Sidebar({ status, onUpload, uploading }) {
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
-          {/* FIX 4 (tiếp): accept input cũng phải có .json */}
           <input
             ref={fileRef}
             type="file"
@@ -90,12 +89,11 @@ export default function Sidebar({ status, onUpload, uploading }) {
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
               <span>Click hoặc kéo thả file</span>
-              {/* FIX 4 (tiếp): hint text cũng cập nhật */}
               <span className="drop-hint">PDF, TXT, JSON • Tối đa 10MB</span>
             </>
           )}
         </div>
-      </div>
+      </div> */}
 
       {/* Document list */}
       {status.documents && status.documents.length > 0 && (
